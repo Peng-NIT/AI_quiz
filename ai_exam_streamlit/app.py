@@ -16,7 +16,6 @@ TYPE_SCORE = {"单选题": 0.5, "判断题": 0.5, "多选题": 1.0}
 # 说明：CSV 本身不支持原生密码保护，因此这里采用“加密 ZIP 包”的方式保存 CSV。
 # 管理员提前设置该密码；考生成绩提交后，系统会生成一个需要该密码才能解压的成绩 CSV 文件。
 ADMIN_EXPORT_PASSWORD = "Admin@123456"  # 请管理员在部署前修改为强密码
-RESULT_DIR = Path(__file__).with_name("exam_results")
 
 st.set_page_config(page_title="人工智能训练师交互答题系统", page_icon="🧠", layout="wide")
 
@@ -73,7 +72,7 @@ def reset_exam():
     for key in [
         "exam_questions", "submitted", "result_rows", "user_score", "total_score",
         "start_time", "submit_time", "username", "answer_cache",
-        "encrypted_result_bytes", "encrypted_result_filename", "encrypted_result_path"
+        "encrypted_result_bytes", "encrypted_result_filename"
     ]:
         st.session_state.pop(key, None)
 
@@ -136,10 +135,8 @@ def create_encrypted_csv_zip(csv_bytes: bytes, username: str, password: str):
         zf.writestr(csv_name, csv_bytes)
 
     encrypted_bytes = buffer.getvalue()
-    RESULT_DIR.mkdir(exist_ok=True)
-    save_path = RESULT_DIR / zip_name
-    save_path.write_bytes(encrypted_bytes)
-    return encrypted_bytes, zip_name, save_path
+    # 不写入服务器磁盘，仅保存在内存中，供浏览器下载。
+    return encrypted_bytes, zip_name
 
 
 questions = load_questions(QUESTION_PATH)
@@ -147,7 +144,7 @@ sections = sorted({q["section"] for q in questions})
 types = ["单选题", "判断题", "多选题"]
 
 st.title("🧠 人工智能训练师选拔考试 · 交互答题系统")
-st.caption("支持用户名输入、随机组卷、自动判分，并在提交后生成管理员密码保护的加密成绩 CSV 文件；考生端仅显示最终分数，不显示正确答案。")
+st.caption("支持用户名输入、随机组卷、自动判分，并在提交后生成管理员密码保护的加密成绩 CSV 下载文件；考生端仅显示最终分数，不显示正确答案。")
 
 with st.sidebar:
     st.header("考生信息")
@@ -224,10 +221,6 @@ if st.session_state.get("submitted"):
     score_col.metric("得分", f"{user_score:.1f}")
     total_col.metric("满分", f"{total_score:.1f}")
 
-    encrypted_path = st.session_state.get("encrypted_result_path")
-    if encrypted_path:
-        st.info(f"已生成加密成绩文件：{encrypted_path}")
-
     if st.session_state.get("encrypted_result_bytes"):
         st.download_button(
             "下载加密成绩 CSV（ZIP，需管理员密码解压）",
@@ -279,7 +272,7 @@ if submitted:
         unanswered_count=unanswered_count,
         rows=rows,
     )
-    encrypted_bytes, encrypted_filename, encrypted_path = create_encrypted_csv_zip(
+    encrypted_bytes, encrypted_filename = create_encrypted_csv_zip(
         csv_bytes=csv_bytes,
         username=st.session_state.username,
         password=ADMIN_EXPORT_PASSWORD,
@@ -291,5 +284,4 @@ if submitted:
     st.session_state.result_rows = rows
     st.session_state.encrypted_result_bytes = encrypted_bytes
     st.session_state.encrypted_result_filename = encrypted_filename
-    st.session_state.encrypted_result_path = str(encrypted_path)
     st.rerun()
