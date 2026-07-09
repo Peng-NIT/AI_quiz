@@ -1,3 +1,4 @@
+import copy
 import json
 import random
 from collections import Counter
@@ -11,6 +12,7 @@ import streamlit as st
 
 QUESTION_PATH = Path(__file__).with_name("questions.json")
 TYPE_SCORE = {"单选题": 0.5, "判断题": 0.5, "多选题": 1.0}
+OPTION_LABELS = list("ABCDEFGHIJKLMNOPQRSTUVWXYZ")
 
 # ====================== 管理员预设配置 ======================
 # 说明：CSV 本身不支持原生密码保护，因此这里采用“加密 ZIP 包”的方式保存 CSV。
@@ -29,16 +31,34 @@ def load_questions(path: Path):
     return data
 
 
-def sample_questions(all_questions, selected_types, selected_sections, counts, shuffle=True, seed=None):
-    pool = [q for q in all_questions if q["type"] in selected_types and q["section"] in selected_sections]
-    rnd = random.Random(seed)
-    selected = []
-    for qtype, n in counts.items():
-        type_pool = [q for q in pool if q["type"] == qtype]
-        selected.extend(rnd.sample(type_pool, min(n, len(type_pool))))
-    if shuffle:
-        rnd.shuffle(selected)
-    return selected
+def randomize_exam_questions(all_questions):
+    """生成随机试卷：题目顺序随机，且每道题的选项顺序随机。
+
+    注意：这里会同步重映射正确答案，因此不会影响后续判分。
+    """
+    rnd = random.Random()
+    exam_questions = copy.deepcopy(all_questions)
+    rnd.shuffle(exam_questions)
+
+    for q in exam_questions:
+        options = q.get("options", {})
+        if not options:
+            continue
+
+        original_items = list(options.items())  # [(原选项字母, 选项内容), ...]
+        rnd.shuffle(original_items)
+
+        new_options = {}
+        old_key_to_new_key = {}
+        for idx, (old_key, option_text) in enumerate(original_items):
+            new_key = OPTION_LABELS[idx]
+            new_options[new_key] = option_text
+            old_key_to_new_key[old_key] = new_key
+
+        q["options"] = new_options
+        q["answer"] = [old_key_to_new_key[a] for a in q.get("answer", []) if a in old_key_to_new_key]
+
+    return exam_questions
 
 
 def grade(questions, answers):
@@ -140,11 +160,10 @@ def create_encrypted_csv_zip(csv_bytes: bytes, username: str, password: str):
 
 
 questions = load_questions(QUESTION_PATH)
-sections = sorted({q["section"] for q in questions})
-types = ["单选题", "判断题", "多选题"]
+type_counter = Counter(q["type"] for q in questions)
 
 st.title("🧠 人工智能训练师选拔考试 · 交互答题系统")
-st.caption("支持用户名输入、随机组卷、自动判分，并在提交后生成管理员密码保护的加密成绩 CSV 下载文件；考生端仅显示最终分数，不显示正确答案。")
+st.caption("默认包含全部题型和全部题目；开始考试后自动打乱题目顺序，并随机打乱每道选择题的选项顺序。提交后仅显示最终分数，并生成管理员密码保护的加密成绩 CSV 下载文件。")
 
 with st.sidebar:
     st.header("考生信息")
@@ -154,20 +173,12 @@ with st.sidebar:
         placeholder="请输入用户名或姓名",
     )
 
-    st.header("组卷设置")
-    selected_types = st.multiselect("题型", types, default=types)
-    selected_sections = st.multiselect("知识模块", sections, default=sections)
-
-    available = Counter(q["type"] for q in questions if q["section"] in selected_sections)
-    counts = {}
-    for t in types:
-        if t in selected_types:
-            default_n = min(10, available[t]) if t != "多选题" else min(5, available[t])
-            counts[t] = st.number_input(f"{t}数量（最多 {available[t]}）", 0, int(available[t]), int(default_n), 1)
-
-    shuffle = st.checkbox("随机打乱题目", value=True)
-    seed_text = st.text_input("随机种子（可选，便于复现实验）", value="")
-    seed = int(seed_text) if seed_text.strip().isdigit() else None
+    st.header("试卷说明")
+    st.write("本系统已固定为完整题库考试，无需选择题型或数量。")
+    st.write(f"题目总数：{len(questions)}")
+    st.write(f"单选题：{type_counter.get('单选题', 0)}")
+    st.write(f"判断题：{type_counter.get('判断题', 0)}")
+    st.write(f"多选题：{type_counter.get('多选题', 0)}")
 
     col_a, col_b = st.columns(2)
     with col_a:
@@ -183,14 +194,9 @@ if start:
     if not username_input.strip():
         st.warning("请先输入用户名 / 姓名，再开始答题。")
         st.stop()
-    if not selected_types or not selected_sections or sum(counts.values()) == 0:
-        st.warning("请至少选择一种题型、一个知识模块，并设置题目数量。")
-        st.stop()
     reset_exam()
     st.session_state.username = username_input.strip()
-    st.session_state.exam_questions = sample_questions(
-        questions, selected_types, selected_sections, counts, shuffle=shuffle, seed=seed
-    )
+    st.session_state.exam_questions = randomize_exam_questions(questions)
     st.session_state.submitted = False
     st.session_state.start_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     st.rerun()
@@ -198,10 +204,10 @@ if start:
 if "exam_questions" not in st.session_state:
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("题库总数", len(questions))
-    c2.metric("单选题", Counter(q["type"] for q in questions).get("单选题", 0))
-    c3.metric("判断题", Counter(q["type"] for q in questions).get("判断题", 0))
-    c4.metric("多选题", Counter(q["type"] for q in questions).get("多选题", 0))
-    st.info("请在左侧输入用户名，并设置题型、模块和题目数量，然后点击“开始答题”。")
+    c2.metric("单选题", type_counter.get("单选题", 0))
+    c3.metric("判断题", type_counter.get("判断题", 0))
+    c4.metric("多选题", type_counter.get("多选题", 0))
+    st.info("请在左侧输入用户名，然后点击“开始答题”。系统会自动生成随机试卷。")
     st.stop()
 
 exam_questions = st.session_state.exam_questions
@@ -217,9 +223,9 @@ if st.session_state.get("submitted"):
     st.success(f"提交完成：{st.session_state.get('username', '未填写')}")
 
     # 考生端只展示最终分数，不展示正确答案、答题明细或错题回顾。
-  #  score_col, total_col = st.columns(2)
-  #  score_col.metric("得分", f"{user_score:.1f}")
-  #  total_col.metric("满分", f"{total_score:.1f}")
+    score_col, total_col = st.columns(2)
+    score_col.metric("得分", f"{user_score:.1f}")
+    total_col.metric("满分", f"{total_score:.1f}")
 
     if st.session_state.get("encrypted_result_bytes"):
         st.download_button(
