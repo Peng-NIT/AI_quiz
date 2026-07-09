@@ -223,9 +223,9 @@ if st.session_state.get("submitted"):
     st.success(f"提交完成：{st.session_state.get('username', '未填写')}")
 
     # 考生端只展示最终分数，不展示正确答案、答题明细或错题回顾。
-    score_col, total_col = st.columns(2)
-    score_col.metric("得分", f"{user_score:.1f}")
-    total_col.metric("满分", f"{total_score:.1f}")
+  #  score_col, total_col = st.columns(2)
+  #  score_col.metric("得分", f"{user_score:.1f}")
+  #  total_col.metric("满分", f"{total_score:.1f}")
 
     if st.session_state.get("encrypted_result_bytes"):
         st.download_button(
