@@ -214,12 +214,12 @@ if st.session_state.get("submitted"):
     user_score = st.session_state.user_score
     total_score = st.session_state.total_score
 
-    st.success(f"提交完成：{st.session_state.get('username', '未填写')} 得分 {user_score:.1f} / {total_score:.1f}")
+    st.success(f"提交完成：{st.session_state.get('username', '未填写')}")
 
     # 考生端只展示最终分数，不展示正确答案、答题明细或错题回顾。
-    score_col, total_col = st.columns(2)
-    score_col.metric("得分", f"{user_score:.1f}")
-    total_col.metric("满分", f"{total_score:.1f}")
+  #  score_col, total_col = st.columns(2)
+  #  score_col.metric("得分", f"{user_score:.1f}")
+  #  total_col.metric("满分", f"{total_score:.1f}")
 
     if st.session_state.get("encrypted_result_bytes"):
         st.download_button(
@@ -238,7 +238,7 @@ if st.session_state.get("submitted"):
 answers = {}
 with st.form("exam_form"):
     for idx, q in enumerate(exam_questions, start=1):
-        st.markdown(f"### {idx}. [{q['type']}｜{q['section']}｜{q['score']}分] {q['question']}")
+        st.markdown(f"### {idx}. [{q['type']}｜{q['score']}分] {q['question']}")
         options = q["options"]
         option_labels = [f"{k}. {v}" for k, v in options.items()]
         label_to_key = {f"{k}. {v}": k for k, v in options.items()}
